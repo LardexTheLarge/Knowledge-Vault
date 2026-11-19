@@ -39,7 +39,7 @@ The docs list four inference modes: `PREFER_ON_DEVICE`, `ONLY_ON_DEVICE`, `PREFE
 
 ```
 Chrome (desktop)
-├─ UI (Vite + React/TS, or plain TS)
+├─ UI (Sveltekit)
 ├─ Vault layer: File System Access API → chunker → IndexedDB
 ├─ Search: MiniSearch index (local)
 ├─ AI layer (src/ai/):
