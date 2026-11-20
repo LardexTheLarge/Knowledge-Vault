@@ -6,7 +6,7 @@ __pycache__/
 # Plan.md
 # C extensions
 *.so
-
+env.example
 # Distribution / packaging
 .Python
 build/
@@ -15,8 +15,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+/lib/
+/lib64/
 parts/
 sdist/
 var/
@@ -222,3 +222,12 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Node / SvelteKit
+node_modules/
+.svelte-kit/
+.env
+.env.*
+!.env.example
+*.local
+.vite/
