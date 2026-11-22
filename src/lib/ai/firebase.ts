@@ -1,6 +1,7 @@
 import { getApps, initializeApp, type FirebaseApp } from "firebase/app";
 import { getAI, GoogleAIBackend, type AI } from "firebase/ai";
 import {
+  CustomProvider,
   initializeAppCheck,
   ReCaptchaEnterpriseProvider,
 } from "firebase/app-check";
@@ -38,19 +39,27 @@ function ensureAppCheck(app: FirebaseApp): void {
   // App Check is enforced for AI Logic, so activate it whenever a site key or a
   // debug token exists. Firebase supports enforcement with only the debug
   // provider, which is the normal localhost setup.
-  if (!siteKey && !debug) return;
+  if (!siteKey && debug === undefined) return;
 
-  if (debug) {
+  if (debug !== undefined) {
     // Must be set before App Check is initialized. The SDK then uses the debug
-    // provider for every token request instead of the reCAPTCHA provider below.
+    // provider for every token request instead of the reCAPTCHA provider below,
+    // and prints the token it generated (`true`) or uses the one you pasted.
     (self as unknown as Record<string, unknown>).FIREBASE_APPCHECK_DEBUG_TOKEN =
-      debug === "true" ? true : debug;
+      debug;
   }
 
   initializeAppCheck(app, {
-    // Unused while a debug token is active; reCAPTCHA Enterprise needs a real
-    // site key, which a localhost-only setup usually does not have yet.
-    provider: new ReCaptchaEnterpriseProvider(siteKey),
+    // App Check calls `provider.initialize()` even in debug mode, and the
+    // reCAPTCHA Enterprise provider loads reCAPTCHA right there. With no site
+    // key that throws "Missing required parameters: sitekey", so use an inert
+    // provider: its getToken() is never reached while the debug token is active.
+    provider: siteKey
+      ? new ReCaptchaEnterpriseProvider(siteKey)
+      : new CustomProvider({
+          getToken: () =>
+            Promise.reject(new Error("App Check runs in debug-only mode")),
+        }),
     isTokenAutoRefreshEnabled: true,
   });
   appCheckReady = true;

@@ -57,8 +57,18 @@ export function appCheckSiteKey(): string {
   return read(import.meta.env.VITE_APPCHECK_SITE_KEY);
 }
 
-export function appCheckDebugToken(): string {
-  return read(import.meta.env.VITE_APPCHECK_DEBUG_TOKEN);
+/**
+ * `true` means "generate a token and print it in the console"; any other value is
+ * used as a literal debug token copied from the Firebase console.
+ *
+ * Values in `.env` are always strings, so `true` arrives as the string `"true"`.
+ * `True`, `TRUE` and `1` are accepted too: otherwise the SDK treats the word
+ * itself as a token, never prints a UUID, and every exchange fails with 403.
+ */
+export function appCheckDebugToken(): true | string | undefined {
+  const raw = read(import.meta.env.VITE_APPCHECK_DEBUG_TOKEN);
+  if (!raw) return undefined;
+  return /^(true|1|yes)$/i.test(raw) ? true : raw;
 }
 
 /**
@@ -67,7 +77,7 @@ export function appCheckDebugToken(): string {
  * value is enough for App Check to be active.
  */
 export function appCheckConfigured(): boolean {
-  return appCheckSiteKey().length > 0 || appCheckDebugToken().length > 0;
+  return appCheckSiteKey().length > 0 || appCheckDebugToken() !== undefined;
 }
 
 export function cloudModelName(): string {
