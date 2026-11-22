@@ -5,10 +5,11 @@
 		vars: EnvVarInfo[];
 		configured: boolean;
 		appCheck: boolean;
+		keyProblem?: string | null;
 		onClose: () => void;
 	}
 
-	let { vars, configured, appCheck, onClose }: Props = $props();
+	let { vars, configured, appCheck, keyProblem = null, onClose }: Props = $props();
 </script>
 
 <svelte:window onkeydown={(event) => event.key === 'Escape' && onClose()} />
@@ -22,7 +23,7 @@
 			<code class="rounded bg-base-300 px-1 py-0.5">.env.example</code> to
 			<code class="rounded bg-base-300 px-1 py-0.5">.env</code>, fill in the values, and restart
 			<code class="rounded bg-base-300 px-1 py-0.5">npm run dev</code>. This panel reads the same values
-			the app uses, so a green row here means the SDK can start.
+			the app uses: a green row means the value is set, not that Firebase accepts it.
 		</p>
 
 		<h4 class="mt-5 text-[11px] font-medium uppercase tracking-[0.1em] text-base-content/45">
@@ -59,6 +60,10 @@
 					disabled until <code>VITE_FIREBASE_API_KEY</code>, <code>VITE_FIREBASE_PROJECT_ID</code> and
 					<code>VITE_FIREBASE_APP_ID</code> are set.
 				</span>
+			</div>
+		{:else if keyProblem}
+			<div class="alert alert-error mt-4 text-xs leading-relaxed">
+				<span>{keyProblem}</span>
 			</div>
 		{:else if !appCheck}
 			<div class="alert alert-warning mt-4 text-xs leading-relaxed">

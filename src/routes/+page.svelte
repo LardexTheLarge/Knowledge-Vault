@@ -15,7 +15,7 @@
 	import { extractActionItems } from '$lib/ai/actionItems';
 	import { answerWithChunks } from '$lib/ai/citedAnswer';
 	import { describeAiError, type FriendlyError } from '$lib/ai/errors';
-	import { envStatus, isFirebaseConfigured, appCheckSiteKey } from '$lib/config';
+	import { apiKeyProblem, envStatus, isFirebaseConfigured, appCheckSiteKey } from '$lib/config';
 	import type { Chunk, DeviceStatus, Note, ResultCard, Sensitivity } from '$lib/types';
 
 	let notes = $state<Note[]>([]);
@@ -468,6 +468,7 @@
 		vars={envStatus()}
 		{configured}
 		{appCheck}
+		keyProblem={apiKeyProblem()}
 		onClose={() => (setupOpen = false)}
 	/>
 {/if}
