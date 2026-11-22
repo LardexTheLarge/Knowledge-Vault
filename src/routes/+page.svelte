@@ -15,7 +15,7 @@
 	import { extractActionItems } from '$lib/ai/actionItems';
 	import { answerWithChunks } from '$lib/ai/citedAnswer';
 	import { describeAiError, type FriendlyError } from '$lib/ai/errors';
-	import { apiKeyProblem, envStatus, isFirebaseConfigured, appCheckSiteKey } from '$lib/config';
+	import { apiKeyProblem, appCheckConfigured, envStatus, isFirebaseConfigured } from '$lib/config';
 	import type { Chunk, DeviceStatus, Note, ResultCard, Sensitivity } from '$lib/types';
 
 	let notes = $state<Note[]>([]);
@@ -42,7 +42,7 @@
 	const selectedNote = $derived(notes.find((note) => note.id === selectedId) ?? null);
 	const html = $derived(selectedNote ? renderMarkdown(selectedNote.content, highlight) : '');
 	const configured = $derived(isFirebaseConfigured());
-	const appCheck = $derived(Boolean(appCheckSiteKey()));
+	const appCheck = $derived(appCheckConfigured());
 
 	const busyLabel = $derived(
 		busy === 'summary'
@@ -395,7 +395,7 @@
 				onclick={() => (setupOpen = true)}
 			>
 				<span class="size-1.5 rounded-full bg-current"></span>
-				{configured ? (appCheck ? 'Firebase connected' : 'App Check key missing') : 'Keys needed'}
+				{configured ? (appCheck ? 'Firebase connected' : 'App Check not set up') : 'Keys needed'}
 			</button>
 		</div>
 	</header>
@@ -472,4 +472,3 @@
 		onClose={() => (setupOpen = false)}
 	/>
 {/if}
-

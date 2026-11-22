@@ -59,7 +59,7 @@ All keys are Vite environment variables read from **`.env` at the project root**
 | `VITE_FIREBASE_API_KEY` | yes | Firebase console → Project settings → General → Your apps → Web app → `apiKey` |
 | `VITE_FIREBASE_PROJECT_ID` | yes | Same config block → `projectId` |
 | `VITE_FIREBASE_APP_ID` | yes | Same config block → `appId` |
-| `VITE_APPCHECK_SITE_KEY` | yes in practice | Security → App Check → Apps → reCAPTCHA Enterprise site key (App Check is enforced for AI Logic) |
+| `VITE_APPCHECK_SITE_KEY` | yes for deployed builds | Security → App Check → Apps → reCAPTCHA Enterprise site key (App Check is enforced for AI Logic; on localhost the debug token alone is enough) |
 | `VITE_APPCHECK_DEBUG_TOKEN` | local dev | Set to `true`, reload, copy the token from the browser console, safelist it under App Check → Apps → ⋮ → Manage debug tokens |
 | `VITE_FIREBASE_AUTH_DOMAIN` | optional | Same config block → `authDomain` |
 | `VITE_FIREBASE_STORAGE_BUCKET` | optional | `storageBucket` |
@@ -76,8 +76,9 @@ Restart `npm run dev` after editing `.env` — Vite only reads it at startup.
    required APIs, registers a Web app and turns on App Check for AI Logic.
 2. Copy the web app config into `.env`.
 3. **Security → App Check → Apps** → register reCAPTCHA Enterprise for the web app,
-   put the site key in `VITE_APPCHECK_SITE_KEY`.
-4. For localhost, use the App Check debug provider as described above.
+   put the site key in `VITE_APPCHECK_SITE_KEY`. This is the production provider.
+4. For localhost, use the App Check debug provider as described above — no site
+   key needed; Firebase allows enforcement with only the debug provider.
 5. Before a public demo, register the hosted domain under App Check and restrict the
    API key in Google Cloud.
 

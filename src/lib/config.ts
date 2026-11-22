@@ -61,6 +61,15 @@ export function appCheckDebugToken(): string {
   return read(import.meta.env.VITE_APPCHECK_DEBUG_TOKEN);
 }
 
+/**
+ * AI Logic enforces App Check. A reCAPTCHA Enterprise site key is the production
+ * provider; on localhost Firebase also accepts the debug provider alone, so either
+ * value is enough for App Check to be active.
+ */
+export function appCheckConfigured(): boolean {
+  return appCheckSiteKey().length > 0 || appCheckDebugToken().length > 0;
+}
+
 export function cloudModelName(): string {
   return read(import.meta.env.VITE_CLOUD_MODEL) || "gemini-3.5-flash-lite";
 }

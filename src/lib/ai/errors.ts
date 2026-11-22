@@ -66,19 +66,7 @@ export function describeAiError(error: unknown): FriendlyError {
     };
   }
 
-  if (
-    lower.includes("service_disabled") ||
-    lower.includes("has not been used in project") ||
-    lower.includes("api has not been used")
-  ) {
-    return {
-      kind: "setup",
-      title: "Firebase AI Logic is not enabled",
-      detail: message,
-      hint: "Open the Firebase console → Build → AI Logic → Get started and finish the guided setup for this project (it enables the APIs the proxy needs), then retry.",
-    };
-  }
-
+  // App Check first: its 403s also talk about APIs being enabled/required.
   if (
     lower.includes("app check") ||
     lower.includes("appcheck") ||
@@ -88,7 +76,28 @@ export function describeAiError(error: unknown): FriendlyError {
       kind: "app-check",
       title: "App Check rejected the request",
       detail: message,
-      hint: "App Check is enforced for AI Logic. Set VITE_APPCHECK_SITE_KEY, and on localhost set VITE_APPCHECK_DEBUG_TOKEN=true then safelist the debug token in the Firebase console.",
+      hint: `AI Logic is blocked until App Check accepts the app. Check Security → App Check → APIs shows Firebase AI Logic as Enforced, then: for production set VITE_APPCHECK_SITE_KEY to a reCAPTCHA Enterprise key registered for that domain; for localhost set VITE_APPCHECK_DEBUG_TOKEN=true, reload, and add the "AppCheck debug token" printed in the browser console under App Check → Apps → ⋮ → Manage debug tokens. If it is already enforced and still rejected, turn off replay protection (limited-use tokens) for AI Logic or enable it in the app.`,
+    };
+  }
+
+  if (
+    lower.includes("service_disabled") ||
+    lower.includes("has not been used in project") ||
+    lower.includes("api has not been used") ||
+    lower.includes("api-not-enabled") ||
+    lower.includes("api is not enabled") ||
+    lower.includes("has not been enabled") ||
+    lower.includes("enable this api")
+  ) {
+    return {
+      kind: "setup",
+      title: "Firebase AI Logic is not enabled",
+      detail: message,
+      hint: `Enable it once for the project: Firebase console → Build → AI Logic → Get started${
+        project
+          ? ` (https://console.firebase.google.com/project/${project}/ailogic/)`
+          : ""
+      }. That guided setup also turns on App Check enforcement for AI Logic, so the next request needs a valid App Check token: VITE_APPCHECK_SITE_KEY for a deployed build, or VITE_APPCHECK_DEBUG_TOKEN=true on localhost with the printed token safelisted under App Check → Apps → ⋮ → Manage debug tokens. Give the API change a minute to propagate, then retry.`,
     };
   }
 

@@ -68,13 +68,15 @@
 		{:else if !appCheck}
 			<div class="alert alert-warning mt-4 text-xs leading-relaxed">
 				<span>
-					Firebase config found, but no App Check key. Firebase enforces App Check for AI Logic, so
-					cloud requests will be rejected until <code>VITE_APPCHECK_SITE_KEY</code> is set.
+					Firebase config found, but no App Check setup. Firebase enforces App Check for AI Logic, so
+					cloud requests will be rejected until <code>VITE_APPCHECK_SITE_KEY</code> is set (deployed
+					builds) or <code>VITE_APPCHECK_DEBUG_TOKEN=true</code> is set on localhost and its token is
+					safelisted.
 				</span>
 			</div>
 		{:else}
 			<div class="alert alert-success mt-4 text-xs">
-				<span>Firebase config and App Check key are present.</span>
+				<span>Firebase config and an App Check key or debug token are present.</span>
 			</div>
 		{/if}
 
@@ -92,13 +94,17 @@
 				copy <code>apiKey</code>, <code>projectId</code> and <code>appId</code> into <code>.env</code>.
 			</li>
 			<li>
-				In <strong>Security → App Check → Apps</strong>, register a reCAPTCHA Enterprise provider for
-				the web app and copy the site key to <code>VITE_APPCHECK_SITE_KEY</code>.
+				For a deployed build, register a reCAPTCHA Enterprise provider for the web app under
+				<strong>Security → App Check → Apps</strong> and copy its site key to
+				<code>VITE_APPCHECK_SITE_KEY</code>. App Check is enforced for AI Logic, so this is the
+				production attestation provider.
 			</li>
 			<li>
-				On localhost, set <code>VITE_APPCHECK_DEBUG_TOKEN=true</code>, reload, copy the debug token
+				On localhost no reCAPTCHA key is needed: set
+				<code>VITE_APPCHECK_DEBUG_TOKEN=true</code>, reload, copy the "AppCheck debug token"
 				printed in the browser console, and add it under
-				<strong>App Check → Apps → ⋮ → Manage debug tokens</strong>.
+				<strong>App Check → Apps → ⋮ → Manage debug tokens</strong>. App Check can be enforced with
+				only the debug provider.
 			</li>
 			<li>Restart the dev server so Vite picks up the new environment values.</li>
 		</ol>
