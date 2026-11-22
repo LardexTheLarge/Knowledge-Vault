@@ -2,7 +2,8 @@
 	import { onMount } from 'svelte';
 	import Sidebar from '$lib/components/Sidebar.svelte';
 	import NoteView from '$lib/components/NoteView.svelte';
-	import StudioPanel from '$lib/components/StudioPanel.svelte';
+	import DocChat from '$lib/components/DocChat.svelte';
+	import AskVault from '$lib/components/AskVault.svelte';
 	import ApprovalDialog from '$lib/components/ApprovalDialog.svelte';
 	import SetupDialog from '$lib/components/SetupDialog.svelte';
 	import { SAMPLE_VAULT } from '$lib/vault/sampleVault';
@@ -14,9 +15,19 @@
 	import { summarizeNote } from '$lib/ai/summarize';
 	import { extractActionItems } from '$lib/ai/actionItems';
 	import { answerWithChunks } from '$lib/ai/citedAnswer';
+	import { answerOnDevice } from '$lib/ai/onDeviceAnswer';
 	import { describeAiError, type FriendlyError } from '$lib/ai/errors';
 	import { apiKeyProblem, appCheckConfigured, envStatus, isFirebaseConfigured } from '$lib/config';
-	import type { Chunk, DeviceStatus, Note, ResultCard, Sensitivity } from '$lib/types';
+	import type {
+		ChatMessage,
+		ChatTurn,
+		Chunk,
+		DeviceStatus,
+		Note,
+		Sensitivity
+	} from '$lib/types';
+
+	type View = 'doc' | 'ask';
 
 	let notes = $state<Note[]>([]);
 	let selectedId = $state<string | null>(null);
@@ -25,14 +36,19 @@
 	let loading = $state(true);
 	let picking = $state(false);
 
+	let view = $state<View>('doc');
+	let docMessages = $state<ChatMessage[]>([]);
+	let vaultMessages = $state<ChatMessage[]>([]);
+
 	let highlight = $state<{ start: number; end: number } | null>(null);
 
-	let results = $state<ResultCard[]>([]);
-	let busy = $state<null | 'summary' | 'actions' | 'answer'>(null);
+	let busy = $state<null | 'summary' | 'actions' | 'doc-answer' | 'vault-answer'>(null);
 	let liveText = $state('');
 	let deviceProgress = $state<number | null>(null);
 	let error = $state<FriendlyError | null>(null);
 	let pending = $state<CloudPlan | null>(null);
+	let pendingView = $state<View>('doc');
+	let pendingHistory = $state(0);
 	let setupOpen = $state(false);
 	let device = $state<DeviceStatus>({ state: 'unknown' });
 
@@ -44,15 +60,112 @@
 	const configured = $derived(isFirebaseConfigured());
 	const appCheck = $derived(appCheckConfigured());
 
+	// -------------------------------------------------- resizable column widths
+	const SIDEBAR_MIN = 210;
+	const SIDEBAR_MAX = 520;
+	const CHAT_MIN = 300;
+	const CHAT_MAX = 780;
+	const READER_MIN = 320;
+	const HANDLE = 5;
+
+	let workspaceEl = $state<HTMLElement | null>(null);
+	// `null` means "use the responsive default from the stylesheet".
+	let sidebarWidth = $state<number | null>(null);
+	let chatWidth = $state<number | null>(null);
+	let resizeSide = $state<'sidebar' | 'chat' | null>(null);
+
+	const workspaceStyle = $derived(
+		[
+			sidebarWidth === null ? '' : `--sidebar-w:${sidebarWidth}px`,
+			chatWidth === null ? '' : `--chat-w:${chatWidth}px`
+		]
+			.filter(Boolean)
+			.join('; ')
+	);
+
+	const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+
+	function startResize(side: 'sidebar' | 'chat', event: PointerEvent) {
+		const box = workspaceEl;
+		if (!box || event.button !== 0) return;
+		const sidebar = box.querySelector<HTMLElement>('.sidebar');
+		const chat = box.querySelector<HTMLElement>('.chat');
+		if (!sidebar || !chat) return;
+
+		event.preventDefault();
+		const rect = box.getBoundingClientRect();
+		const startX = event.clientX;
+		const startSidebar = sidebarWidth ?? sidebar.getBoundingClientRect().width;
+		const startChat = chatWidth ?? chat.getBoundingClientRect().width;
+		// Never let either panel squeeze the reader out of existence.
+		const sidebarMax = Math.max(SIDEBAR_MIN, rect.width - startChat - READER_MIN - 2 * HANDLE);
+		const chatMax = Math.max(CHAT_MIN, rect.width - startSidebar - READER_MIN - 2 * HANDLE);
+
+		resizeSide = side;
+		document.body.style.cursor = 'col-resize';
+		document.body.style.userSelect = 'none';
+
+		const move = (moveEvent: PointerEvent) => {
+			const delta = moveEvent.clientX - startX;
+			if (side === 'sidebar') {
+				sidebarWidth = clamp(startSidebar + delta, SIDEBAR_MIN, Math.min(SIDEBAR_MAX, sidebarMax));
+			} else {
+				chatWidth = clamp(startChat - delta, CHAT_MIN, Math.min(CHAT_MAX, chatMax));
+			}
+		};
+		const end = () => {
+			resizeSide = null;
+			document.body.style.cursor = '';
+			document.body.style.userSelect = '';
+			window.removeEventListener('pointermove', move);
+			window.removeEventListener('pointerup', end);
+			window.removeEventListener('pointercancel', end);
+			window.removeEventListener('blur', end);
+		};
+
+		window.addEventListener('pointermove', move);
+		window.addEventListener('pointerup', end);
+		window.addEventListener('pointercancel', end);
+		// Releasing the button outside the window never fires pointerup.
+		window.addEventListener('blur', end);
+	}
+
+	// Arrow keys resize the focused divider; Shift moves in bigger steps.
+	function nudgeResize(side: 'sidebar' | 'chat', event: KeyboardEvent) {
+		if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+		event.preventDefault();
+		const box = workspaceEl;
+		if (!box) return;
+		const step = (event.key === 'ArrowRight' ? 1 : -1) * (event.shiftKey ? 48 : 16);
+		const panel = box.querySelector<HTMLElement>(side === 'sidebar' ? '.sidebar' : '.chat');
+		const current =
+			side === 'sidebar'
+				? (sidebarWidth ?? panel?.getBoundingClientRect().width ?? 288)
+				: (chatWidth ?? panel?.getBoundingClientRect().width ?? 384);
+
+		if (side === 'sidebar') {
+			sidebarWidth = clamp(current + step, SIDEBAR_MIN, SIDEBAR_MAX);
+		} else {
+			// The chat divider grows the panel to the left, so the arrow direction flips.
+			chatWidth = clamp(current - step, CHAT_MIN, CHAT_MAX);
+		}
+	}
+
 	const busyLabel = $derived(
 		busy === 'summary'
 			? 'Summarising on this device…'
 			: busy === 'actions'
 				? 'Extracting action items on this device…'
-				: busy === 'answer'
-					? 'Asking the cloud…'
-					: null
+				: busy === 'doc-answer'
+					? 'Thinking about this file…'
+					: busy === 'vault-answer'
+						? 'Asking across your files…'
+						: null
 	);
+	const docBusyLabel = $derived(
+		busy === 'summary' || busy === 'actions' || busy === 'doc-answer' ? busyLabel : null
+	);
+	const vaultBusyLabel = $derived(busy === 'vault-answer' ? busyLabel : null);
 
 	const deviceLabel = $derived.by(() => {
 		switch (device.state) {
@@ -109,69 +222,113 @@
 		};
 	});
 
-	function selectNote(id: string) {
-		selectedId = id;
+	// ------------------------------------------------------------- chat plumbing
+	function userMessage(text: string): ChatMessage {
+		return { id: crypto.randomUUID(), role: 'user', kind: 'question', text };
+	}
+
+	/** Earlier turns only: the question is appended to the chat but sent separately. */
+	function transcript(messages: ChatMessage[]): ChatTurn[] {
+		const prior =
+			messages[messages.length - 1]?.role === 'user' ? messages.slice(0, -1) : messages;
+		return prior
+			.filter((message) => message.text.trim().length > 0)
+			.map((message) => ({ role: message.role, text: message.text }));
+	}
+
+	function appendAssistant(target: View, message: Omit<ChatMessage, 'id' | 'role'>) {
+		const full: ChatMessage = { id: crypto.randomUUID(), role: 'assistant', ...message };
+		if (target === 'doc') docMessages = [...docMessages, full];
+		else vaultMessages = [...vaultMessages, full];
+	}
+
+	function openNote(id: string) {
+		if (id !== selectedId) {
+			selectedId = id;
+			docMessages = [];
+			liveText = '';
+		}
 		highlight = null;
+	}
+
+	function selectNote(id: string) {
+		openNote(id);
 	}
 
 	function openCitation(chunks: Chunk[], chunkId: string) {
 		const chunk = chunks.find((item) => item.id === chunkId);
 		if (!chunk) return;
-		selectedId = chunk.noteId;
+		openNote(chunk.noteId);
+		view = 'doc';
 		highlight = { start: chunk.start, end: chunk.end };
+	}
+
+	function resetChats() {
+		docMessages = [];
+		vaultMessages = [];
+		liveText = '';
+		highlight = null;
+	}
+
+	// ------------------------------------------------------------- single file
+	async function askDoc(question: string) {
+		const note = selectedNote;
+		if (!note || busy) return;
+		error = null;
+		docMessages = [...docMessages, userMessage(question)];
+
+		if (note.sensitivity === 'private') {
+			await answerDocOnDevice(note, question);
+			return;
+		}
+
+		try {
+			pending = planCloudQuestion(question, [note]);
+			pendingView = 'doc';
+			pendingHistory = transcript(docMessages).length;
+		} catch (cause) {
+			error = describeAiError(cause);
+		}
+	}
+
+	async function answerDocOnDevice(note: Note, question: string) {
+		busy = 'doc-answer';
+		deviceProgress = null;
+		liveText = '';
+		try {
+			const answer = await answerOnDevice(question, note, transcript(docMessages), {
+				onProgress: (progress) => (deviceProgress = progress),
+				onToken: (text) => (liveText = text)
+			});
+			appendAssistant('doc', {
+				kind: 'answer',
+				text: answer.text,
+				source: answer.source,
+				noteTitle: note.title
+			});
+			device = { state: 'available', detail: 'The on-device model answered.' };
+		} catch (cause) {
+			error = describeAiError(cause);
+		} finally {
+			busy = null;
+			deviceProgress = null;
+			liveText = '';
+		}
 	}
 
 	async function setSensitivity(sensitivity: Sensitivity) {
 		if (!selectedNote) return;
+		if (selectedNote.sensitivity === sensitivity) return;
+		// Flipping the label starts a fresh conversation: earlier turns were answered
+		// under the old privacy rule, so they must not silently become cloud context.
+		docMessages = [];
+		liveText = '';
 		const updated: Note = { ...selectedNote, sensitivity };
 		notes = notes.map((note) => (note.id === updated.id ? updated : note));
 		try {
 			await saveNote(updated);
 		} catch {
 			/* the label still applies for this session */
-		}
-	}
-
-	async function useSampleVault() {
-		notes = SAMPLE_VAULT.map((note) => ({ ...note }));
-		vaultLabel = 'Sample vault';
-		selectedId = notes[0]?.id ?? null;
-		query = '';
-		highlight = null;
-		error = null;
-		try {
-			await saveNotes(notes);
-			await setMeta('vaultLabel', 'Sample vault');
-		} catch {
-			/* in-memory vault is still usable */
-		}
-	}
-
-	async function pickFolder() {
-		picking = true;
-		error = null;
-		try {
-			const loaded = await readVaultFolder();
-			notes = loaded.notes;
-			vaultLabel = loaded.name;
-			selectedId = loaded.notes[0]?.id ?? null;
-			query = '';
-			highlight = null;
-			await saveNotes(notes);
-			await setMeta('vaultLabel', loaded.name);
-		} catch (cause) {
-			if (cause instanceof FolderAccessError) {
-				error = {
-					kind: 'unknown',
-					title: 'Could not open that folder',
-					detail: cause.message,
-					hint: 'Folder access needs a real Chrome tab. The sample vault still works here.'
-				};
-			} else {
-				error = describeAiError(cause);
-			}
-		} finally {
-			picking = false;
 		}
 	}
 
@@ -187,19 +344,14 @@
 				onProgress: (progress) => (deviceProgress = progress),
 				onToken: (text) => (liveText = text)
 			});
-			results = [
-				{
-					kind: 'summary',
-					id: crypto.randomUUID(),
-					noteId: note.id,
-					noteTitle: note.title,
-					text: summary.text,
-					source: summary.source,
-					chunkCount: summary.chunkCount,
-					reduced: summary.reduced
-				},
-				...results
-			];
+			appendAssistant('doc', {
+				kind: 'summary',
+				text: summary.text,
+				source: summary.source,
+				noteTitle: note.title,
+				chunkCount: summary.chunkCount,
+				reduced: summary.reduced
+			});
 			liveText = '';
 			device = { state: 'available', detail: 'The on-device model answered.' };
 		} catch (cause) {
@@ -218,17 +370,13 @@
 		busy = 'actions';
 		try {
 			const extracted = await extractActionItems(note);
-			results = [
-				{
-					kind: 'actions',
-					id: crypto.randomUUID(),
-					noteId: note.id,
-					noteTitle: note.title,
-					items: extracted.items,
-					source: extracted.source
-				},
-				...results
-			];
+			appendAssistant('doc', {
+				kind: 'actions',
+				text: '',
+				items: extracted.items,
+				source: extracted.source,
+				noteTitle: note.title
+			});
 			device = { state: 'available', detail: 'The on-device model answered.' };
 		} catch (cause) {
 			error = describeAiError(cause);
@@ -237,20 +385,25 @@
 		}
 	}
 
-	function previewAsk(question: string, noteIds: string[]) {
-		error = null;
+	// ------------------------------------------------------------ ask the vault
+	function askVault(question: string, noteIds: string[]) {
+		if (busy) return;
 		const chosen = notes.filter((note) => noteIds.includes(note.id));
+		error = null;
 		if (chosen.length === 0) {
 			error = {
 				kind: 'unknown',
-				title: 'No notes selected',
-				detail: 'Choose at least one shareable note to ask across.',
-				hint: 'Private notes cannot be sent to the cloud at all.'
+				title: 'No files selected',
+				detail: 'Choose at least one shareable file to ask across.',
+				hint: 'Private files cannot be sent to the cloud at all.'
 			};
 			return;
 		}
+		vaultMessages = [...vaultMessages, userMessage(question)];
 		try {
 			pending = planCloudQuestion(question, chosen);
+			pendingView = 'ask';
+			pendingHistory = transcript(vaultMessages).length;
 		} catch (cause) {
 			error = describeAiError(cause);
 		}
@@ -272,27 +425,68 @@
 	async function approve() {
 		if (!pending) return;
 		const plan = pending;
+		const target = pendingView;
+		const history = transcript(target === 'doc' ? docMessages : vaultMessages);
 		pending = null;
-		busy = 'answer';
+		busy = target === 'doc' ? 'doc-answer' : 'vault-answer';
 		error = null;
 		try {
-			const answer = await answerWithChunks(plan.question, plan.chunks);
-			results = [
-				{
-					kind: 'answer',
-					id: crypto.randomUUID(),
-					question: plan.question,
-					text: answer.answer,
-					claims: answer.claims,
-					source: answer.source,
-					chunks: plan.chunks
-				},
-				...results
-			];
+			const answer = await answerWithChunks(plan.question, plan.chunks, history);
+			appendAssistant(target, {
+				kind: 'answer',
+				text: answer.answer,
+				claims: answer.claims,
+				chunks: plan.chunks,
+				source: answer.source
+			});
 		} catch (cause) {
 			error = describeAiError(cause);
 		} finally {
 			busy = null;
+		}
+	}
+
+	// ------------------------------------------------------------------ vault
+	async function useSampleVault() {
+		notes = SAMPLE_VAULT.map((note) => ({ ...note }));
+		vaultLabel = 'Sample vault';
+		selectedId = notes[0]?.id ?? null;
+		query = '';
+		error = null;
+		resetChats();
+		try {
+			await saveNotes(notes);
+			await setMeta('vaultLabel', 'Sample vault');
+		} catch {
+			/* in-memory vault is still usable */
+		}
+	}
+
+	async function pickFolder() {
+		picking = true;
+		error = null;
+		try {
+			const loaded = await readVaultFolder();
+			notes = loaded.notes;
+			vaultLabel = loaded.name;
+			selectedId = loaded.notes[0]?.id ?? null;
+			query = '';
+			resetChats();
+			await saveNotes(notes);
+			await setMeta('vaultLabel', loaded.name);
+		} catch (cause) {
+			if (cause instanceof FolderAccessError) {
+				error = {
+					kind: 'unknown',
+					title: 'Could not open that folder',
+					detail: cause.message,
+					hint: 'Folder access needs a real Chrome tab. The sample vault still works here.'
+				};
+			} else {
+				error = describeAiError(cause);
+			}
+		} finally {
+			picking = false;
 		}
 	}
 
@@ -359,6 +553,14 @@
 	<title>Knowledge Vault — private by default</title>
 </svelte:head>
 
+<svelte:window
+	onkeydown={(event) => {
+		// Settings are left to their own dialogs; Escape only dismisses the error modal.
+		if (event.key !== 'Escape' || pending || setupOpen) return;
+		if (error) error = null;
+	}}
+/>
+
 <div class="app">
 	<header class="topbar">
 		<div class="flex items-center gap-3">
@@ -374,6 +576,53 @@
 				</div>
 			</div>
 		</div>
+
+		<nav class="nav-tabs" aria-label="Views">
+			<button
+				type="button"
+				class="nav-tab"
+				class:is-active={view === 'doc'}
+				aria-current={view === 'doc' ? 'page' : undefined}
+				onclick={() => (view = 'doc')}
+			>
+				<svg
+					viewBox="0 0 24 24"
+					width="14"
+					height="14"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2"
+					aria-hidden="true"
+					focusable="false"
+				>
+					<path d="M6 3h8l4 4v14H6z" stroke-linejoin="round" />
+					<path d="M9 12h6M9 16h6" stroke-linecap="round" />
+				</svg>
+				Single file
+			</button>
+			<button
+				type="button"
+				class="nav-tab"
+				class:is-active={view === 'ask'}
+				aria-current={view === 'ask' ? 'page' : undefined}
+				onclick={() => (view = 'ask')}
+			>
+				<svg
+					viewBox="0 0 24 24"
+					width="14"
+					height="14"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2"
+					aria-hidden="true"
+					focusable="false"
+				>
+					<path d="M21 12a8 8 0 0 1-8 8H7l-4 3v-5.5A8 8 0 0 1 11 4h2a8 8 0 0 1 8 8z" stroke-linejoin="round" />
+					<path d="M8.5 11.5h7M8.5 15h4" stroke-linecap="round" />
+				</svg>
+				Ask the vault
+			</button>
+		</nav>
 
 		<div class="flex items-center gap-2">
 			<button
@@ -400,64 +649,138 @@
 		</div>
 	</header>
 
-	<div class="workspace">
-		<Sidebar
-			notes={visibleNotes}
-			totalNotes={notes.length}
-			{query}
-			{vaultLabel}
-			{selectedId}
-			{picking}
-			onQuery={(value) => (query = value)}
-			onSelect={selectNote}
-			onPickFolder={pickFolder}
-			onUseSample={useSampleVault}
-			onOpenSetup={() => (setupOpen = true)}
-			setupWarning={!configured || !appCheck}
-		/>
-
-		{#if loading}
-			<section class="reader">
-				<div class="reader-empty">
-					<div>
-						<h2>Opening the vault…</h2>
-						<p>Reading notes from this device.</p>
-					</div>
-				</div>
-			</section>
-		{:else}
-			<NoteView
-				note={selectedNote}
-				{html}
-				busy={busy !== null}
-				onSetSensitivity={setSensitivity}
-				onSummarize={runSummary}
-				onActionItems={runActionItems}
+	{#if view === 'doc'}
+		<div class="workspace" style={workspaceStyle} bind:this={workspaceEl}>
+			<Sidebar
+				notes={visibleNotes}
+				totalNotes={notes.length}
+				{query}
+				{vaultLabel}
+				{selectedId}
+				{picking}
+				onQuery={(value) => (query = value)}
+				onSelect={selectNote}
+				onPickFolder={pickFolder}
+				onUseSample={useSampleVault}
+				onOpenSetup={() => (setupOpen = true)}
+				setupWarning={!configured || !appCheck}
 			/>
-		{/if}
 
-		<StudioPanel
+			<button
+				type="button"
+				class="resizer resizer-sidebar"
+				class:is-dragging={resizeSide === 'sidebar'}
+				aria-label="Resize the notes list"
+				title="Drag to resize · double-click to reset"
+				onpointerdown={(event) => startResize('sidebar', event)}
+				onkeydown={(event) => nudgeResize('sidebar', event)}
+				ondblclick={() => (sidebarWidth = null)}
+			></button>
+
+			{#if loading}
+				<section class="reader">
+					<div class="reader-empty">
+						<div>
+							<h2>Opening the vault…</h2>
+							<p>Reading notes from this device.</p>
+						</div>
+					</div>
+				</section>
+			{:else}
+				<NoteView
+					note={selectedNote}
+					{html}
+					busy={busy !== null}
+					onSetSensitivity={setSensitivity}
+					onSummarize={runSummary}
+					onActionItems={runActionItems}
+				/>
+			{/if}
+
+			<button
+				type="button"
+				class="resizer resizer-chat"
+				class:is-dragging={resizeSide === 'chat'}
+				aria-label="Resize the chat panel"
+				title="Drag to resize · double-click to reset"
+				onpointerdown={(event) => startResize('chat', event)}
+				onkeydown={(event) => nudgeResize('chat', event)}
+				ondblclick={() => (chatWidth = null)}
+			></button>
+
+			<DocChat
+				note={selectedNote}
+				messages={docMessages}
+				busyLabel={docBusyLabel}
+				liveText={docBusyLabel ? liveText : ''}
+				{deviceProgress}
+				onAsk={askDoc}
+				onOpenSetup={() => (setupOpen = true)}
+				onCitation={openCitation}
+			/>
+		</div>
+	{:else}
+		<AskVault
 			{notes}
-			{results}
-			{busyLabel}
-			{liveText}
-			{deviceProgress}
-			{error}
-			onAsk={previewAsk}
-			onDemoBlock={demoBlock}
+			messages={vaultMessages}
+			busyLabel={vaultBusyLabel}
+			liveText=""
+			deviceProgress={null}
+			onAsk={askVault}
 			onBlockedNote={blockedNote}
 			onCitation={openCitation}
-			onDismissError={() => (error = null)}
-			onOpenSetup={() => (setupOpen = true)}
-			onClear={() => (results = [])}
+			onDemoBlock={demoBlock}
+			onClear={() => (vaultMessages = [])}
 		/>
-	</div>
+	{/if}
 </div>
+
+{#if error}
+	<div class="modal modal-open">
+		<div class="modal-box max-w-lg" role="dialog" aria-modal="true" aria-labelledby="error-title">
+			<div class="flex items-start gap-3">
+				<span
+					class="grid size-9 shrink-0 place-items-center rounded-full bg-error/15 text-base font-semibold text-error"
+					aria-hidden="true">!</span
+				>
+				<div class="min-w-0">
+					<h3 id="error-title" class="text-base font-semibold leading-snug">{error.title}</h3>
+					<p class="mt-1.5 whitespace-pre-line text-[13px] leading-relaxed text-base-content/75">
+						{error.detail}
+					</p>
+				</div>
+			</div>
+
+			{#if error.hint}
+				<p
+					class="mt-4 rounded-lg border border-base-300 bg-base-200/60 px-3 py-2 text-xs leading-relaxed text-base-content/65"
+				>
+					{error.hint}
+				</p>
+			{/if}
+
+			<div class="modal-action">
+				{#if error.kind === 'setup' || error.kind === 'app-check'}
+					<button
+						class="btn btn-sm btn-outline"
+						onclick={() => {
+							error = null;
+							setupOpen = true;
+						}}>Open setup</button
+					>
+				{/if}
+				<button class="btn btn-sm btn-primary" onclick={() => (error = null)}>Dismiss</button>
+			</div>
+		</div>
+		<button class="modal-backdrop" aria-label="Close" onclick={() => (error = null)}>close</button>
+	</div>
+{/if}
 
 {#if pending}
 	<ApprovalDialog
 		payload={pending.payload}
 		question={pending.question}
+		historyCount={pendingHistory}
 		onApprove={approve}
 		onCancel={() => (pending = null)}
 	/>

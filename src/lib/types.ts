@@ -94,6 +94,26 @@ export type ResultCard =
 			chunks: Chunk[];
 	  };
 
+export interface ChatTurn {
+	role: 'user' | 'assistant';
+	text: string;
+}
+
+/** One turn in a chat transcript: a question, an answer, a summary or action items. */
+export interface ChatMessage {
+	id: string;
+	role: 'user' | 'assistant';
+	kind: 'question' | 'answer' | 'summary' | 'actions';
+	text: string;
+	source?: InferenceSource;
+	claims?: Claim[];
+	chunks?: Chunk[];
+	items?: ActionItem[];
+	noteTitle?: string;
+	chunkCount?: number;
+	reduced?: boolean;
+}
+
 export interface DeviceStatus {
 	state: 'unknown' | 'checking' | 'unavailable' | 'downloadable' | 'downloading' | 'available' | 'unsupported-browser';
 	progress?: number;

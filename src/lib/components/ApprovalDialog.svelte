@@ -5,11 +5,13 @@
 	interface Props {
 		payload: CloudPayload;
 		question: string;
+		/** Earlier chat turns sent along as context, so the dialog stays honest. */
+		historyCount?: number;
 		onApprove: () => void;
 		onCancel: () => void;
 	}
 
-	let { payload, question, onApprove, onCancel }: Props = $props();
+	let { payload, question, historyCount = 0, onApprove, onCancel }: Props = $props();
 </script>
 
 <svelte:window onkeydown={(event) => event.key === 'Escape' && onCancel()} />
@@ -32,7 +34,19 @@
 		<div class="mt-4 flex flex-wrap gap-2">
 			<span class="badge badge-sm badge-ghost">{payloadSummary(payload)}</span>
 			<span class="badge badge-sm badge-outline badge-success">No private notes</span>
+			{#if historyCount > 0}
+				<span class="badge badge-sm badge-outline badge-info">
+					{historyCount} earlier chat {historyCount === 1 ? 'turn' : 'turns'}
+				</span>
+			{/if}
 		</div>
+
+		{#if historyCount > 0}
+			<p class="mt-2 text-[11px] leading-relaxed text-base-content/50">
+				This question is a follow-up: the earlier questions and answers in this chat are sent too,
+				so the model can keep the thread.
+			</p>
+		{/if}
 
 		<ul class="mt-4 flex flex-col divide-y divide-base-300 rounded-lg border border-base-300">
 			{#each payload.notes as note (note.id)}

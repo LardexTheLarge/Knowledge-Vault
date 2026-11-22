@@ -80,7 +80,7 @@
 		<div class="reader-empty">
 			<div>
 				<h2>Pick a note</h2>
-				<p>Select a note on the left, or open a folder of markdown files.</p>
+				<p>Select a note on the left, or open a folder of markdown notes and PDFs.</p>
 			</div>
 		</div>
 	{/if}

@@ -1,5 +1,5 @@
 import { Schema } from 'firebase/ai';
-import type { Chunk, CitedAnswer, Claim } from '$lib/types';
+import type { ChatTurn, Chunk, CitedAnswer, Claim } from '$lib/types';
 import { createModel, sourceOf, type AiResponse } from './models';
 
 const schema = Schema.object({
@@ -21,9 +21,14 @@ Rules:
 - Cite evidence for every substantive claim with the excerpt ids in square brackets, e.g. "launch-plan#2".
 - Only use ids that appear in the excerpts. Never invent an id.
 - If the excerpts do not answer the question, say so plainly and suggest what is missing.
+- Earlier turns of the conversation are context only: cite the excerpts, never the earlier answers.
 - Be concise: 2–5 sentences, then the supporting claims.`;
 
-export async function answerWithChunks(question: string, chunks: Chunk[]): Promise<CitedAnswer> {
+export async function answerWithChunks(
+	question: string,
+	chunks: Chunk[],
+	history: ChatTurn[] = []
+): Promise<CitedAnswer> {
 	const model = createModel({
 		mode: 'ONLY_IN_CLOUD',
 		systemInstruction: SYSTEM,
@@ -33,7 +38,15 @@ export async function answerWithChunks(question: string, chunks: Chunk[]): Promi
 	});
 
 	const sourceBlock = chunks.map((chunk) => `[${chunk.id}] (${chunk.notePath})\n${chunk.text}`).join('\n\n---\n\n');
-	const prompt = `Vault excerpts:\n\n${sourceBlock}\n\nQuestion: ${question}\n\nAnswer using only these excerpts and cite excerpt ids.`;
+	const conversation = history
+		.slice(-6)
+		.map(
+			(turn) =>
+				`${turn.role === 'user' ? 'Person' : 'You'}: ${turn.text.slice(0, 600)}`
+		)
+		.join('\n\n');
+	const earlier = conversation ? `Earlier in this conversation:\n\n${conversation}\n\n` : '';
+	const prompt = `Vault excerpts:\n\n${sourceBlock}\n\n${earlier}Question: ${question}\n\nAnswer using only these excerpts and cite excerpt ids.`;
 
 	const result = await model.generateContent(prompt);
 	const source = sourceOf(result.response as AiResponse, 'ONLY_IN_CLOUD');

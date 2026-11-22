@@ -1,9 +1,9 @@
 # Knowledge Vault
 
 A private-by-default knowledge vault built with SvelteKit and Firebase AI Logic.
-Open a folder of markdown files, search it locally, summarise and extract action
-items **on-device**, and use the cloud for cross-document answers only after you
-approve exactly what is sent.
+Open a folder of markdown notes and PDFs, search it locally, summarise and extract
+action items **on-device**, and use the cloud for cross-document answers only
+after you approve exactly what is sent.
 
 > **Platform note:** Firebase AI Logic's on-device inference uses Chrome's built-in
 > Prompt API (Gemini Nano) and is **web-only, Chrome on Desktop 139+**, single-turn
@@ -25,7 +25,8 @@ on-device** or **Answered in cloud** using the SDK's `inferenceSource`.
 
 What ships in this repo:
 
-- Folder import via the File System Access API, chunking and IndexedDB persistence
+- Folder import of `.md`, `.txt`, `.mdx` and `.pdf` files via the File System Access
+  API, PDF text extraction with pdf.js, chunking and IndexedDB persistence
 - Instant keyword search with MiniSearch (no network, no embeddings)
 - On-device summaries with streaming and map-reduce for long notes
 - On-device action items as structured JSON (`task`, `owner`, `due`, `sourceLine`)
@@ -110,8 +111,9 @@ Private notes never fall back to the cloud if this is unavailable.
 `sample-vault/` contains nine markdown notes. Three are `sensitivity: private`
 (journal, health, finances) and the rest are `sensitivity: shareable`, so the
 guardrail and the approval panel can be demonstrated without real data. Imported
-notes are **private by default**; add `sensitivity: shareable` to the frontmatter
-or flip the label in the note header.
+notes and PDFs are **private by default**; add `sensitivity: shareable` to a note's
+frontmatter or flip the label in the note header. PDFs have no frontmatter, so
+they always start private and must be flipped by hand.
 
 ## Build and deploy
 
@@ -143,7 +145,7 @@ src/
 │  ├─ actionItems.ts     # on-device, structured output
 │  ├─ citedAnswer.ts     # cloud, structured output + citation validation
 │  └─ errors.ts          # actionable error messages
-├─ vault/                # folder access, frontmatter, chunker, IndexedDB
+├─ vault/                # folder access, PDF text, frontmatter, chunker, IndexedDB
 ├─ search/               # MiniSearch index
 ├─ components/           # sidebar, reader, studio, approval + setup dialogs
 └─ routes/+page.svelte   # app shell and flow wiring
