@@ -7,8 +7,21 @@
 	import ApprovalDialog from '$lib/components/ApprovalDialog.svelte';
 	import SetupDialog from '$lib/components/SetupDialog.svelte';
 	import { SAMPLE_VAULT } from '$lib/vault/sampleVault';
-	import { getMeta, loadNotes, saveNote, saveNotes, setMeta } from '$lib/vault/db';
-	import { FolderAccessError, readVaultFolder } from '$lib/vault/fsAccess';
+	import {
+		getMeta,
+		loadNotes,
+		loadSensitivity,
+		saveNote,
+		saveNotes,
+		saveSensitivity,
+		setMeta,
+		type SensitivityMap
+	} from '$lib/vault/db';
+	import {
+		FolderAccessError,
+		FolderPickerCancelled,
+		readVaultFolder
+	} from '$lib/vault/fsAccess';
 	import { createIndex, searchNotes } from '$lib/search';
 	import { renderMarkdown } from '$lib/vault/markdown';
 	import { planCloudQuestion, PrivacyBlockedError, type CloudPlan } from '$lib/ai/router';
@@ -35,6 +48,11 @@
 	let query = $state('');
 	let loading = $state(true);
 	let picking = $state(false);
+	/** Storage key of the open vault, so every folder keeps its own Private/Shareable labels. */
+	let vaultKey = $state('sample');
+	let savedTags = $state<SensitivityMap>({});
+	/** Non-blocking note: a partial import or a cache failure must not hide a loaded vault. */
+	let notice = $state<{ title: string; detail?: string; hint?: string } | null>(null);
 
 	let view = $state<View>('doc');
 	let docMessages = $state<ChatMessage[]>([]);
@@ -186,17 +204,88 @@
 		}
 	});
 
+	/** Re-apply the labels the user set the last time this vault was open. */
+	function withSavedTags(list: Note[], tags: SensitivityMap): Note[] {
+		return list.map((note) => {
+			const saved = tags[note.path];
+			return saved && saved !== note.sensitivity ? { ...note, sensitivity: saved } : note;
+		});
+	}
+
+	/**
+	 * Cache the vault on this device. A storage problem (full quota, IndexedDB
+	 * blocked) must never hide a vault that is already loaded in memory, so it
+	 * surfaces as a dismissible notice instead of an error dialog.
+	 */
+	async function persistVault(name: string, key: string): Promise<string | null> {
+		try {
+			await saveNotes(notes);
+			await setMeta('vaultLabel', name);
+			await setMeta('vaultKey', key);
+			return null;
+		} catch (cause) {
+			return cause instanceof Error ? cause.message : String(cause);
+		}
+	}
+
+	/** Switch vault, re-apply its saved labels, and report any cache failure. */
+	async function switchVault(list: Note[], name: string, key: string): Promise<string | null> {
+		const tags = await loadSensitivity(key).catch(() => ({}) as SensitivityMap);
+		vaultKey = key;
+		savedTags = tags;
+		notes = withSavedTags(list, tags);
+		vaultLabel = name;
+		selectedId = notes[0]?.id ?? null;
+		query = '';
+		resetChats();
+		return persistVault(name, key);
+	}
+
+	/** One notice for a folder that opened with skipped files and/or was not cached. */
+	function vaultNotice(name: string, count: number, cacheError: string | null, warnings: string[]) {
+		if (!cacheError && warnings.length === 0) {
+			notice = null;
+			return;
+		}
+		const detail = [
+			cacheError ? `This browser could not cache the vault on this device: ${cacheError}` : '',
+			...warnings
+		]
+			.filter(Boolean)
+			.join(' ');
+		notice = {
+			title: `${name} is open — ${count} notes read`,
+			detail,
+			hint: cacheError
+				? 'The files stay usable until you reload. Free up disk space or allow site data for this page, then open the folder again.'
+				: 'Everything that was read is searchable as usual. Skipped files were left untouched on your disk.'
+		};
+	}
+
 	onMount(async () => {
 		try {
 			const saved = await loadNotes();
 			if (saved.length > 0) {
-				notes = saved;
-				vaultLabel =
+				const label =
 					(await getMeta<string>('vaultLabel')) ??
 					(saved[0]?.source === 'sample' ? 'Sample vault' : 'Saved vault');
+				const key =
+					(await getMeta<string>('vaultKey')) ??
+					(saved[0]?.source === 'sample' ? 'sample' : `folder:${label}`);
+				const tags = await loadSensitivity(key).catch(() => ({}) as SensitivityMap);
+				vaultKey = key;
+				savedTags = tags;
+				vaultLabel = label;
+				notes = withSavedTags(saved, tags);
 			} else {
-				notes = SAMPLE_VAULT.map((note) => ({ ...note }));
-				await saveNotes(notes);
+				const tags = await loadSensitivity('sample').catch(() => ({}) as SensitivityMap);
+				vaultKey = 'sample';
+				savedTags = tags;
+				notes = withSavedTags(
+					SAMPLE_VAULT.map((note) => ({ ...note })),
+					tags
+				);
+				await saveNotes(notes).catch(() => undefined);
 			}
 		} catch {
 			notes = SAMPLE_VAULT.map((note) => ({ ...note }));
@@ -316,17 +405,20 @@
 		}
 	}
 
-	async function setSensitivity(sensitivity: Sensitivity) {
+	async function setSensitivity(next: Sensitivity) {
 		if (!selectedNote) return;
-		if (selectedNote.sensitivity === sensitivity) return;
+		if (selectedNote.sensitivity === next) return;
 		// Flipping the label starts a fresh conversation: earlier turns were answered
 		// under the old privacy rule, so they must not silently become cloud context.
 		docMessages = [];
 		liveText = '';
-		const updated: Note = { ...selectedNote, sensitivity };
+		const updated: Note = { ...selectedNote, sensitivity: next };
 		notes = notes.map((note) => (note.id === updated.id ? updated : note));
+		// Remember the label per file so it survives switching folders and coming back.
+		savedTags = { ...savedTags, [updated.path]: next };
 		try {
 			await saveNote(updated);
+			await saveSensitivity(vaultKey, savedTags);
 		} catch {
 			/* the label still applies for this session */
 		}
@@ -448,33 +540,27 @@
 
 	// ------------------------------------------------------------------ vault
 	async function useSampleVault() {
-		notes = SAMPLE_VAULT.map((note) => ({ ...note }));
-		vaultLabel = 'Sample vault';
-		selectedId = notes[0]?.id ?? null;
-		query = '';
 		error = null;
-		resetChats();
-		try {
-			await saveNotes(notes);
-			await setMeta('vaultLabel', 'Sample vault');
-		} catch {
-			/* in-memory vault is still usable */
-		}
+		notice = null;
+		const cacheError = await switchVault(
+			SAMPLE_VAULT.map((note) => ({ ...note })),
+			'Sample vault',
+			'sample'
+		);
+		vaultNotice('Sample vault', notes.length, cacheError, []);
 	}
 
 	async function pickFolder() {
 		picking = true;
 		error = null;
+		notice = null;
 		try {
 			const loaded = await readVaultFolder();
-			notes = loaded.notes;
-			vaultLabel = loaded.name;
-			selectedId = loaded.notes[0]?.id ?? null;
-			query = '';
-			resetChats();
-			await saveNotes(notes);
-			await setMeta('vaultLabel', loaded.name);
+			const cacheError = await switchVault(loaded.notes, loaded.name, `folder:${loaded.name}`);
+			vaultNotice(loaded.name, notes.length, cacheError, loaded.warnings);
 		} catch (cause) {
+			// Closing the picker is a choice, not a failure.
+			if (cause instanceof FolderPickerCancelled) return;
 			if (cause instanceof FolderAccessError) {
 				error = {
 					kind: 'unknown',
@@ -648,6 +734,25 @@
 			</button>
 		</div>
 	</header>
+
+	{#if notice}
+		<div class="vault-notice" role="status">
+			<div class="min-w-0 flex-1">
+				<p class="font-medium {notice.detail ? '' : 'opacity-80'}">{notice.title}</p>
+				{#if notice.detail}
+					<p class="mt-1 whitespace-pre-line opacity-75">{notice.detail}</p>
+				{/if}
+				{#if notice.hint}
+					<p class="notice-hint">{notice.hint}</p>
+				{/if}
+			</div>
+			<button
+				type="button"
+				class="btn btn-xs btn-ghost shrink-0"
+				onclick={() => (notice = null)}>Dismiss</button
+			>
+		</div>
+	{/if}
 
 	{#if view === 'doc'}
 		<div class="workspace" style={workspaceStyle} bind:this={workspaceEl}>

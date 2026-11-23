@@ -83,6 +83,29 @@ body {
 	background-color: var(--color-base-200);
 }
 
+/* A non-blocking note under the header: a partial folder import or a vault that
+   could not be cached. The vault itself stays loaded and usable. */
+.vault-notice {
+	display: flex;
+	flex: none;
+	align-items: flex-start;
+	gap: 0.75rem;
+	margin: 0.5rem 0.75rem 0;
+	padding: 0.55rem 0.75rem;
+	border: 1px solid var(--color-base-300);
+	border-left: 3px solid var(--color-info, var(--color-secondary));
+	border-radius: 0.5rem;
+	background-color: var(--color-base-200);
+	font-size: 0.75rem;
+	line-height: 1.55;
+}
+
+.vault-notice .notice-hint {
+	margin-top: 0.3rem;
+	font-size: 0.7rem;
+	color: color-mix(in srgb, var(--color-base-content) 50%, transparent);
+}
+
 .workspace {
 	display: grid;
 	/* The two 5px tracks are the drag handles between the panels. */
