@@ -133,6 +133,29 @@ firebase deploy --only hosting
 
 The build is a static SPA, so any static host works.
 
+### GitHub Pages
+
+[`.github/workflows/deploy.yml`](.github/workflows/deploy.yml) builds the app and
+publishes it to GitHub Pages on every push to `main`. The workflow builds with
+`BASE_PATH=/Knowledge-Vault`, so the site is served from
+<https://lardexthelarge.github.io/Knowledge-Vault/>.
+
+1. **Settings → Pages → Build and deployment → Source: GitHub Actions.** The
+   workflow also tries to enable Pages itself on its first run, so this is only a
+   fallback if that fails with a permissions error.
+2. Add the build-time Firebase values under **Settings → Secrets and variables →
+   Actions**, using the same names as `.env` (`VITE_FIREBASE_API_KEY`,
+   `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_APP_ID`, `VITE_APPCHECK_SITE_KEY`, and
+   any optional ones you use). Without them the site still deploys and only the AI
+   features show the setup notice.
+3. Push to `main`, or run the workflow from the **Actions** tab.
+4. Add `lardexthelarge.github.io` as an allowed domain in Firebase **App Check**,
+   otherwise cloud AI calls on the deployed copy fail the App Check check.
+
+Folder import, search and labels work from the HTTPS Pages URL, because the File
+System Access API only needs a secure context. `static/.nojekyll` stops GitHub
+Pages from running Jekyll, which would otherwise drop the `_app/` directory.
+
 ## Project structure
 
 ```
