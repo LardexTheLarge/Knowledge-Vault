@@ -140,9 +140,11 @@ publishes it to GitHub Pages on every push to `main`. The workflow builds with
 `BASE_PATH=/Knowledge-Vault`, so the site is served from
 <https://lardexthelarge.github.io/Knowledge-Vault/>.
 
-1. **Settings → Pages → Build and deployment → Source: GitHub Actions.** The
-   workflow also tries to enable Pages itself on its first run, so this is only a
-   fallback if that fails with a permissions error.
+1. **Settings → Pages → Build and deployment → Source: GitHub Actions.** This one
+   step has to be done in the browser: creating the Pages site is a repository
+   administration call, and the workflow's `GITHUB_TOKEN` is never allowed to make
+   it. Without it the first run fails at *Configure Pages* with
+   `Resource not accessible by integration`. Subsequent pushes need nothing extra.
 2. Add the build-time Firebase values under **Settings → Secrets and variables →
    Actions**, using the same names as `.env` (`VITE_FIREBASE_API_KEY`,
    `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_APP_ID`, `VITE_APPCHECK_SITE_KEY`, and

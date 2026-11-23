@@ -50,12 +50,12 @@ jobs:
           VITE_FIREBASE_MEASUREMENT_ID: ${{ secrets.VITE_FIREBASE_MEASUREMENT_ID }}
           VITE_CLOUD_MODEL: ${{ secrets.VITE_CLOUD_MODEL }}
 
+      # Prerequisite, done once by hand: Settings → Pages → Source: GitHub Actions.
+      # Creating the Pages site is an admin-only API call, which the workflow token
+      # can never make, so this action can only read an existing site. If this step
+      # fails with "Resource not accessible by integration", Pages is still off.
       - name: Configure Pages
         uses: actions/configure-pages@v5
-        with:
-          # Turns Pages on for the repo on the first run, so no Settings click is
-          # needed. Documented fallback: Settings → Pages → Source: GitHub Actions.
-          enablement: true
 
       - name: Upload the site
         uses: actions/upload-pages-artifact@v3
