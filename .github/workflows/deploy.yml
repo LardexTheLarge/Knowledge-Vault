@@ -32,6 +32,26 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Prints which values the build will inline, never the values themselves.
+      # Secrets are read from Settings → Secrets and variables → Actions → Secrets;
+      # entries in the Variables tab, or in an environment's secrets, never reach
+      # this job and show up here as empty.
+      - name: Check the Firebase values reached the build
+        env:
+          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
+          VITE_APPCHECK_SITE_KEY: ${{ secrets.VITE_APPCHECK_SITE_KEY }}
+        run: |
+          for name in VITE_FIREBASE_API_KEY VITE_FIREBASE_PROJECT_ID VITE_FIREBASE_APP_ID VITE_APPCHECK_SITE_KEY; do
+            value="${!name}"
+            if [ -n "$value" ]; then
+              echo "::notice title=$name::present (${#value} characters)"
+            else
+              echo "::warning title=$name::empty in the build — is it a repository secret (not a variable)?"
+            fi
+          done
+
       - name: Build the static site
         run: npm run build
         env:

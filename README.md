@@ -146,10 +146,14 @@ publishes it to GitHub Pages on every push to `main`. The workflow builds with
    it. Without it the first run fails at *Configure Pages* with
    `Resource not accessible by integration`. Subsequent pushes need nothing extra.
 2. Add the build-time Firebase values under **Settings → Secrets and variables →
-   Actions**, using the same names as `.env` (`VITE_FIREBASE_API_KEY`,
+   Actions → Secrets**, using the same names as `.env` (`VITE_FIREBASE_API_KEY`,
    `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_APP_ID`, `VITE_APPCHECK_SITE_KEY`, and
    any optional ones you use). Without them the site still deploys and only the AI
-   features show the setup notice.
+   features show the setup notice. Values in the **Variables** tab, or under an
+   environment's own secrets, are not visible to the build. Saving a secret does not
+   redeploy anything: start a new run (or **Re-run all jobs**) afterwards, and check
+   the *Check the Firebase values reached the build* step, which lists which of the
+   four values were present.
 3. Push to `main`, or run the workflow from the **Actions** tab.
 4. Add `lardexthelarge.github.io` as an allowed domain in Firebase **App Check**,
    otherwise cloud AI calls on the deployed copy fail the App Check check.
